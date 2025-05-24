@@ -1,87 +1,264 @@
-﻿
-class Program
+﻿using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using System.Linq;
+
+namespace FileWatcher
 {
-    private const string SaveFileName = "filewatcher_paths.txt";
-
-    static void Main(string[] args)
+    class Program
     {
-        Console.OutputEncoding = System.Text.Encoding.UTF8;
-        Console.Title = "File Watcher";
-        WriteLineWithColors("CYAN 🔍 File Watcher - by RED weezard12 CYAN 🔁");
-
-        string inputPath = "";
-        string outputPath = "";
-        string savePath = Path.Combine(Path.GetTempPath(), SaveFileName);
-
-        if (File.Exists(savePath))
+        private static Settings _settings = new();
+        private static FileWatcherService? _watcher;
+        private static readonly List<string> MainMenuOptions = new()
         {
-            WriteLineWithColors("YELLOW 💾 Found saved paths. Load them? (y/n): ");
-            var key = Console.ReadKey();
-            Console.WriteLine();
+            "Start Watching",
+            "Manage Saved Paths",
+            "Settings",
+            "Exit"
+        };
 
-            if (key.KeyChar == 'y')
+        static void Main(string[] args)
+        {
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            Console.Title = "File Watcher";
+            _settings = Settings.Load();
+
+            if (_settings.AutoClearConsole)
             {
-                var lines = File.ReadAllLines(savePath);
-                if (lines.Length >= 2)
+                StartAutoClearConsole();
+            }
+
+            while (true)
+            {
+                int choice = ConsoleHelper.ShowMenuWithArrows("File Watcher Menu", MainMenuOptions);
+
+                switch (choice)
                 {
-                    inputPath = lines[0];
-                    outputPath = lines[1];
-                    WriteLineWithColors($"GREEN 📥 Input path: WHITE {inputPath}");
-                    WriteLineWithColors($"GREEN 📤 Output path: WHITE {outputPath}");
+                    case 0:
+                        StartWatching();
+                        break;
+                    case 1:
+                        ManageSavedPaths();
+                        break;
+                    case 2:
+                        ShowSettings();
+                        break;
+                    case 3:
+                        StopWatcher();
+                        ConsoleHelper.WriteLineWithColors("DARKGRAY 👋 Goodbye!");
+                        return;
+                }
+
+                Console.WriteLine("\nPress any key to continue...");
+                Console.ReadKey(true);
+            }
+        }
+
+        private static void StartWatching()
+        {
+            try
+            {
+                string inputPath;
+                string outputPath;
+                string pathName;
+
+                if (_settings.SavedPaths.Count > 0)
+                {
+                    var options = new List<string> { "New Path" };
+                    options.AddRange(_settings.SavedPaths.Select(p => p.Name));
+                    
+                    int choice = ConsoleHelper.ShowMenuWithArrows("Select Path", options);
+                    
+                    if (choice == 0)
+                    {
+                        // New path
+                        inputPath = ConsoleHelper.GetInputWithArrows("Input file path");
+                        outputPath = ConsoleHelper.GetInputWithArrows("Output directory");
+                        pathName = ConsoleHelper.GetInputWithArrows("Enter a name for this path (optional)");
+
+                        if (string.IsNullOrWhiteSpace(inputPath) || string.IsNullOrWhiteSpace(outputPath))
+                        {
+                            ConsoleHelper.WriteLineWithColors("YELLOW ⚠️ Invalid paths. Operation cancelled.");
+                            return;
+                        }
+
+                        // If no name provided, use "Unnamed"
+                        if (string.IsNullOrWhiteSpace(pathName))
+                        {
+                            pathName = "Unnamed";
+                        }
+
+                        // Check if path name already exists
+                        var existingPath = _settings.SavedPaths.FirstOrDefault(p => p.Name.Equals(pathName, StringComparison.OrdinalIgnoreCase));
+                        if (existingPath != null)
+                        {
+                            if (!ConsoleHelper.GetYesNoWithArrows($"Path '{pathName}' already exists. Overwrite?"))
+                            {
+                                return;
+                            }
+                            _settings.SavedPaths.Remove(existingPath);
+                        }
+
+                        // Save the new path
+                        _settings.AddWatchedPath(pathName, inputPath, outputPath);
+                    }
+                    else
+                    {
+                        // Use existing path
+                        var selectedPath = _settings.SavedPaths[choice - 1];
+                        inputPath = selectedPath.InputPath;
+                        outputPath = selectedPath.OutputPath;
+                    }
                 }
                 else
                 {
-                    WriteLineWithColors("RED ⚠️ Save file is corrupted. WHITE Proceeding with manual input.");
+                    // No saved paths, create new one
+                    inputPath = ConsoleHelper.GetInputWithArrows("Input file path");
+                    outputPath = ConsoleHelper.GetInputWithArrows("Output directory");
+                    pathName = ConsoleHelper.GetInputWithArrows("Enter a name for this path (optional)");
+
+                    if (string.IsNullOrWhiteSpace(inputPath) || string.IsNullOrWhiteSpace(outputPath))
+                    {
+                        ConsoleHelper.WriteLineWithColors("YELLOW ⚠️ Invalid paths. Operation cancelled.");
+                        return;
+                    }
+
+                    // If no name provided, use "Unnamed"
+                    if (string.IsNullOrWhiteSpace(pathName))
+                    {
+                        pathName = "Unnamed";
+                    }
+
+                    // Save the new path
+                    _settings.AddWatchedPath(pathName, inputPath, outputPath);
+                }
+
+                StopWatcher();
+                _watcher = new FileWatcherService(inputPath, outputPath, _settings);
+                _watcher.Start();
+
+                ConsoleHelper.WriteLineWithColors("CYAN 🔄 Watching for changes. Press 'q' to stop.");
+                while (Console.ReadKey(true).KeyChar != 'q') ;
+                StopWatcher();
+            }
+            catch (Exception ex)
+            {
+                ConsoleHelper.WriteLineWithColors($"RED ❌ Error: WHITE {ex.Message}");
+            }
+        }
+
+        private static void ManageSavedPaths()
+        {
+            if (_settings.SavedPaths.Count == 0)
+            {
+                ConsoleHelper.WriteLineWithColors("YELLOW ⚠️ No saved paths found.");
+                return;
+            }
+
+            var options = _settings.SavedPaths.Select(p => $"{p.Name} ({p.InputPath} → {p.OutputPath})").ToList();
+            options.Add("Back");
+
+            while (true)
+            {
+                int choice = ConsoleHelper.ShowMenuWithArrows("Saved Paths", options);
+                
+                if (choice == options.Count - 1) // Back option
+                    break;
+
+                var pathOptions = new List<string> { "Start Watching", "Rename", "Remove", "Back" };
+                int action = ConsoleHelper.ShowMenuWithArrows("Path Options", pathOptions);
+
+                switch (action)
+                {
+                    case 0: // Start Watching
+                        var selectedPath = _settings.SavedPaths[choice];
+                        StopWatcher();
+                        _watcher = new FileWatcherService(selectedPath.InputPath, selectedPath.OutputPath, _settings);
+                        _watcher.Start();
+                        ConsoleHelper.WriteLineWithColors("CYAN 🔄 Watching for changes. Press 'q' to stop.");
+                        while (Console.ReadKey(true).KeyChar != 'q') ;
+                        StopWatcher();
+                        break;
+                    case 1: // Rename
+                        var pathToRename = _settings.SavedPaths[choice];
+                        string newName = ConsoleHelper.GetInputWithArrows("Enter new name", pathToRename.Name);
+                        
+                        if (!string.IsNullOrWhiteSpace(newName))
+                        {
+                            // Check if new name already exists
+                            var existingPath = _settings.SavedPaths.FirstOrDefault(p => 
+                                p.Name.Equals(newName, StringComparison.OrdinalIgnoreCase) && 
+                                p != pathToRename);
+                            
+                            if (existingPath != null)
+                            {
+                                ConsoleHelper.WriteLineWithColors($"RED ❌ Path name '{newName}' already exists.");
+                            }
+                            else
+                            {
+                                pathToRename.Name = newName;
+                                _settings.Save();
+                                options[choice] = $"{newName} ({pathToRename.InputPath} → {pathToRename.OutputPath})";
+                            }
+                        }
+                        break;
+                    case 2: // Remove
+                        if (ConsoleHelper.GetYesNoWithArrows("Are you sure you want to remove this path?"))
+                        {
+                            _settings.RemoveWatchedPath(choice);
+                            options.RemoveAt(choice);
+                            if (options.Count == 1) // Only "Back" remains
+                                break;
+                        }
+                        break;
                 }
             }
         }
 
-        if (string.IsNullOrWhiteSpace(inputPath) || string.IsNullOrWhiteSpace(outputPath))
+        private static void ShowSettings()
         {
-            Console.Write("📁 Enter the full path to the input file: ");
-            inputPath = Console.ReadLine() ?? string.Empty;
+            ConsoleHelper.ClearConsole();
+            ConsoleHelper.WriteLineWithColors("WHITE === Settings ===");
 
-            Console.Write("📁 Enter the full path to the output file: ");
-            outputPath = Console.ReadLine() ?? string.Empty;
-
-            File.WriteAllLines(savePath, new[] { inputPath, outputPath });
-            WriteLineWithColors($"GRAY 💾 Paths saved to temp: WHITE {savePath}");
-        }
-
-        if (!File.Exists(inputPath))
-        {
-            WriteLineWithColors("RED ❌ Input file does not exist.");
-            return;
-        }
-
-        WriteLineWithColors("CYAN 🔄 Watching for changes. Press 'q' to quit.");
-        var watcher = new FileWatcherService(inputPath, outputPath);
-        watcher.Start();
-
-        while (Console.ReadKey().KeyChar != 'q') ;
-
-        watcher.Stop();
-        WriteLineWithColors("DARKGRAY \n👋 File watcher stopped.");
-    }
-
-    public static void WriteLineWithColors(string message)
-    {
-        string[] parts = message.Split(new[] { ' ' }, StringSplitOptions.None);
-        var originalColor = Console.ForegroundColor;
-
-        foreach (var part in parts)
-        {
-            if (Enum.TryParse(typeof(ConsoleColor), part, true, out object? color))
+            _settings.ShowProgressBar = ConsoleHelper.GetYesNoWithArrows("Show progress bar", _settings.ShowProgressBar);
+            _settings.AutoStart = ConsoleHelper.GetYesNoWithArrows("Auto-start watching", _settings.AutoStart);
+            _settings.AutoClearConsole = ConsoleHelper.GetYesNoWithArrows("Auto-clear console", _settings.AutoClearConsole);
+            
+            if (_settings.AutoClearConsole)
             {
-                Console.ForegroundColor = (ConsoleColor)color!;
+                string interval = ConsoleHelper.GetInputWithArrows("Auto-clear interval (seconds)", _settings.AutoClearInterval.ToString());
+                if (int.TryParse(interval, out int newInterval) && newInterval > 0)
+                {
+                    _settings.AutoClearInterval = newInterval;
+                }
             }
-            else
+
+            _settings.Save();
+        }
+
+        private static void StopWatcher()
+        {
+            if (_watcher != null)
             {
-                Console.Write(part + " ");
+                _watcher.Stop();
+                _watcher = null;
             }
         }
 
-        Console.ForegroundColor = originalColor;
-        Console.WriteLine();
+        private static void StartAutoClearConsole()
+        {
+            Task.Run(async () =>
+            {
+                while (true)
+                {
+                    await Task.Delay(_settings.AutoClearInterval * 1000);
+                    if (_settings.AutoClearConsole)
+                    {
+                        ConsoleHelper.ClearConsole();
+                    }
+                }
+            });
+        }
     }
 }

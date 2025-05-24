@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using System.Collections.Generic;
 
 namespace FileWatcher
 {
@@ -10,6 +11,8 @@ namespace FileWatcher
         public bool AutoStart { get; set; } = false;
         public bool AutoClearConsole { get; set; } = false;
         public int AutoClearInterval { get; set; } = 30; // seconds
+        public bool AutoClearOnChange { get; set; } = false;
+        public int AutoClearChangeCount { get; set; } = 10;
         public List<WatchedPath> SavedPaths { get; set; } = new();
 
         private static readonly string SettingsPath = Path.Combine(

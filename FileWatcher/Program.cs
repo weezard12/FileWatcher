@@ -24,11 +24,6 @@ namespace FileWatcher
             Console.Title = "File Watcher";
             _settings = Settings.Load();
 
-            if (_settings.AutoClearConsole)
-            {
-                StartAutoClearConsole();
-            }
-
             while (true)
             {
                 int choice = ConsoleHelper.ShowMenuWithArrows("File Watcher Menu", MainMenuOptions);
@@ -46,12 +41,10 @@ namespace FileWatcher
                         break;
                     case 3:
                         StopWatcher();
+                        ConsoleHelper.ClearConsole();
                         ConsoleHelper.WriteLineWithColors("DARKGRAY 👋 Goodbye!");
                         return;
                 }
-
-                Console.WriteLine("\nPress any key to continue...");
-                Console.ReadKey(true);
             }
         }
 
@@ -138,6 +131,7 @@ namespace FileWatcher
                 _watcher = new FileWatcherService(inputPath, outputPath, _settings);
                 _watcher.Start();
 
+                ConsoleHelper.ClearConsole();
                 ConsoleHelper.WriteLineWithColors("CYAN 🔄 Watching for changes. Press 'q' to stop.");
                 while (Console.ReadKey(true).KeyChar != 'q') ;
                 StopWatcher();
@@ -176,6 +170,8 @@ namespace FileWatcher
                         StopWatcher();
                         _watcher = new FileWatcherService(selectedPath.InputPath, selectedPath.OutputPath, _settings);
                         _watcher.Start();
+
+                        ConsoleHelper.ClearConsole();
                         ConsoleHelper.WriteLineWithColors("CYAN 🔄 Watching for changes. Press 'q' to stop.");
                         while (Console.ReadKey(true).KeyChar != 'q') ;
                         StopWatcher();
@@ -218,22 +214,7 @@ namespace FileWatcher
 
         private static void ShowSettings()
         {
-            ConsoleHelper.ClearConsole();
-            ConsoleHelper.WriteLineWithColors("WHITE === Settings ===");
-
-            _settings.ShowProgressBar = ConsoleHelper.GetYesNoWithArrows("Show progress bar", _settings.ShowProgressBar);
-            _settings.AutoStart = ConsoleHelper.GetYesNoWithArrows("Auto-start watching", _settings.AutoStart);
-            _settings.AutoClearConsole = ConsoleHelper.GetYesNoWithArrows("Auto-clear console", _settings.AutoClearConsole);
-            
-            if (_settings.AutoClearConsole)
-            {
-                string interval = ConsoleHelper.GetInputWithArrows("Auto-clear interval (seconds)", _settings.AutoClearInterval.ToString());
-                if (int.TryParse(interval, out int newInterval) && newInterval > 0)
-                {
-                    _settings.AutoClearInterval = newInterval;
-                }
-            }
-
+            ConsoleHelper.ShowInteractiveSettingsMenu(_settings);
             _settings.Save();
         }
 
@@ -244,21 +225,6 @@ namespace FileWatcher
                 _watcher.Stop();
                 _watcher = null;
             }
-        }
-
-        private static void StartAutoClearConsole()
-        {
-            Task.Run(async () =>
-            {
-                while (true)
-                {
-                    await Task.Delay(_settings.AutoClearInterval * 1000);
-                    if (_settings.AutoClearConsole)
-                    {
-                        ConsoleHelper.ClearConsole();
-                    }
-                }
-            });
         }
     }
 }

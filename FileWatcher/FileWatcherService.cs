@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace FileWatcher
 {
@@ -10,6 +11,8 @@ namespace FileWatcher
         private readonly string _outputDirectory;
         private FileSystemWatcher _watcher;
         private readonly Settings _settings;
+        private int _changeCounter = 0;
+        private CancellationTokenSource? _autoClearCts;
 
         public FileWatcherService(string inputFilePath, string outputDirectory, Settings settings)
         {
@@ -66,10 +69,40 @@ namespace FileWatcher
 
             _watcher.Changed += OnFileChanged;
             ConsoleHelper.WriteLineWithColors($"YELLOW 🕵️ Watching file: WHITE {_inputFilePath}");
+
+            if (_settings.AutoClearConsole)
+            {
+                _autoClearCts = new CancellationTokenSource();
+                StartAutoClearTimer(_autoClearCts.Token);
+            }
+        }
+
+        private async void StartAutoClearTimer(CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    await Task.Delay(_settings.AutoClearInterval * 1000, token);
+                    if (token.IsCancellationRequested) break;
+                    ConsoleHelper.ClearConsole();
+                }
+            }
+            catch (TaskCanceledException) { }
         }
 
         private void OnFileChanged(object sender, FileSystemEventArgs e)
         {
+            if (_settings.AutoClearOnChange)
+            {
+                _changeCounter++;
+                if (_changeCounter >= _settings.AutoClearChangeCount)
+                {
+                    ConsoleHelper.ClearConsole();
+                    _changeCounter = 0;
+                }
+            }
+
             ConsoleHelper.WriteLineWithColors($"MAGENTA 📡 Change detected: WHITE {e.FullPath}");
             WaitForFileReady(e.FullPath);
 
@@ -173,6 +206,12 @@ namespace FileWatcher
             {
                 _watcher.EnableRaisingEvents = false;
                 _watcher.Dispose();
+            }
+            if (_autoClearCts != null)
+            {
+                _autoClearCts.Cancel();
+                _autoClearCts.Dispose();
+                _autoClearCts = null;
             }
         }
     }

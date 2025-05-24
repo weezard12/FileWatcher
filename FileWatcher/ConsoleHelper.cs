@@ -102,6 +102,7 @@ namespace FileWatcher
 
         public static string GetInputWithArrows(string prompt, string defaultValue = "")
         {
+            ClearConsole();
             Console.Write($"{prompt}: ");
             string input = defaultValue;
             int cursorPosition = Console.CursorLeft;
@@ -143,6 +144,7 @@ namespace FileWatcher
 
         public static bool GetYesNoWithArrows(string prompt, bool defaultValue = true)
         {
+            ClearConsole();
             int selectedIndex = defaultValue ? 0 : 1;
             bool done = false;
 
@@ -175,6 +177,83 @@ namespace FileWatcher
 
             Console.WriteLine();
             return selectedIndex == 0;
+        }
+
+        public static void ShowInteractiveSettingsMenu(Settings settings)
+        {
+            var options = new List<(string label, Func<Settings, string> getValue, Action<Settings, int> changeValue, Func<Settings, bool> isEnabled)>
+            {
+                ("Show progress bar", s => s.ShowProgressBar ? "Yes" : "No", (s, dir) => s.ShowProgressBar = dir > 0 ? true : false, s => true),
+                ("Auto-start watching", s => s.AutoStart ? "Yes" : "No", (s, dir) => s.AutoStart = dir > 0 ? true : false, s => true),
+                ("Auto-clear console (timer)", s => s.AutoClearConsole ? "Yes" : "No", (s, dir) => s.AutoClearConsole = dir > 0 ? true : false, s => true),
+                ("Auto-clear interval (seconds)", s => s.AutoClearInterval.ToString(), (s, dir) => s.AutoClearInterval = Math.Max(1, s.AutoClearInterval + dir), s => s.AutoClearConsole),
+                ("Auto-clear on file change", s => s.AutoClearOnChange ? "Yes" : "No", (s, dir) => s.AutoClearOnChange = dir > 0 ? true : false, s => true),
+                ("Clear after how many changes?", s => s.AutoClearChangeCount.ToString(), (s, dir) => s.AutoClearChangeCount = Math.Max(1, s.AutoClearChangeCount + dir), s => s.AutoClearOnChange),
+            };
+
+            int selected = 0;
+            bool done = false;
+            while (!done)
+            {
+                ClearConsole();
+                WriteLineWithColors("WHITE === Settings ===");
+                for (int i = 0; i < options.Count; i++)
+                {
+                    var (label, getValue, _, isEnabled) = options[i];
+                    string value = getValue(settings);
+                    bool enabled = isEnabled(settings);
+                    if (i == selected)
+                    {
+                        if (enabled)
+                            WriteLineWithColors($"GREEN > {label}: {value}");
+                        else
+                            WriteLineWithColors($"GREEN > {label}: {value}");
+                    }
+                    else
+                    {
+                        if (enabled)
+                            WriteLineWithColors($"WHITE   {label}: {value}");
+                        else
+                            WriteLineWithColors($"WHITE   {label}: {value}");
+                    }
+                }
+                WriteLineWithColors("WHITE ======================");
+                WriteLineWithColors("YELLOW Use ↑↓ to move, ←→ to change, Enter to save and exit");
+
+                var key = Console.ReadKey(true);
+                var (_, _, changeValue, isEnabledCurrent) = options[selected];
+                bool enabledCurrent = isEnabledCurrent(settings);
+                switch (key.Key)
+                {
+                    case ConsoleKey.UpArrow:
+                        selected = (selected - 1 + options.Count) % options.Count;
+                        break;
+                    case ConsoleKey.DownArrow:
+                        selected = (selected + 1) % options.Count;
+                        break;
+                    case ConsoleKey.LeftArrow:
+                        if (enabledCurrent)
+                        {
+                            if ((selected == 3 || selected == 5) && (key.Modifiers & ConsoleModifiers.Shift) != 0)
+                                changeValue(settings, -5);
+                            else
+                                changeValue(settings, -1);
+                        }
+                        break;
+                    case ConsoleKey.RightArrow:
+                        if (enabledCurrent)
+                        {
+                            if ((selected == 3 || selected == 5) && (key.Modifiers & ConsoleModifiers.Shift) != 0)
+                                changeValue(settings, 5);
+                            else
+                                changeValue(settings, 1);
+                        }
+                        break;
+                    case ConsoleKey.Enter:
+                        done = true;
+                        break;
+                }
+            }
         }
     }
 } 
